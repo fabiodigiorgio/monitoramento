@@ -1,34 +1,47 @@
 
 import streamlit as st
 import pandas as pd
-import tempfile
 import os
 from datetime import datetime
 
 st.title("📊 Monitoramento de Status - Simples")
+
+CSV_BANCO = "banco_monitoramento.csv"
+
+# Carregar banco existente ou criar novo
+if os.path.exists(CSV_BANCO):
+    banco_df = pd.read_csv(CSV_BANCO, parse_dates=["Data_Arquivo"])
+else:
+    banco_df = pd.DataFrame()
 
 uploaded_files = st.file_uploader("📤 Envie as planilhas de monitoramento direcionado", type="xlsx", accept_multiple_files=True)
 
 if uploaded_files:
     st.success(f"{len(uploaded_files)} arquivo(s) carregado(s). Processando...")
 
-    # Combinar os arquivos
-    dados = []
     for file in uploaded_files:
         nome = file.name
-        data_ref = pd.to_datetime(nome.split()[-1].replace(".xlsx", ""), dayfirst=True).date()
+        try:
+            data_ref = pd.to_datetime(nome.split()[-1].replace(".xlsx", ""), dayfirst=True).date()
+        except:
+            st.error(f"Não foi possível extrair data do nome do arquivo: {nome}")
+            continue
         df = pd.read_excel(file, sheet_name="Base")
         df["Data_Arquivo"] = data_ref
-        dados.append(df)
-    df_total = pd.concat(dados, ignore_index=True)
+        banco_df = pd.concat([banco_df, df], ignore_index=True)
 
-    # Carregar modelo de referência
+    banco_df.drop_duplicates(subset=["OS ID", "Data_Arquivo"], keep="last", inplace=True)
+    banco_df.to_csv(CSV_BANCO, index=False)
+    st.success("📁 Banco de dados atualizado com sucesso!")
+
+df_total = banco_df.copy()
+
+if not df_total.empty:
     modelo_base = pd.read_excel("modelo_base.xlsx", sheet_name="monitoramento")
     colunas_fixas = ['OS ID', 'TAT', 'Cod Autorizada', 'Modelo', 'Número de Série',
                      'Status OS', 'Meta', 'Fora do Prazo', 'Entrega da Peça']
     colunas_status = [col for col in modelo_base.columns if col not in colunas_fixas]
 
-    # Preparar monitoramento com base no modelo
     df_m = modelo_base.copy()
     df_m = df_m[df_m["OS ID"].isin(df_total["OS ID"])]
     df_long = df_m.melt(id_vars=["OS ID", "Status OS", "Meta", "Cod Autorizada"],
@@ -42,7 +55,6 @@ if uploaded_files:
     )
     df_atrasos = df_long[df_long["Dias em Atraso"] > 0].copy()
 
-    # Rankings
     ranking_postos = df_atrasos.groupby("Cod Autorizada").agg(
         Quantidade_OS=("OS ID", "nunique"),
         Total_Dias_Atraso=("Dias em Atraso", "sum")
@@ -57,7 +69,6 @@ if uploaded_files:
         Quantidade_OS=("OS ID", "nunique")
     ).reset_index().sort_values("Total_Dias_Atraso", ascending=False)
 
-    # Salvar Excel
     data_hoje = datetime.today().strftime("%d-%m-%Y")
     output_excel_path = f"Monitoramento STATUS {data_hoje}.xlsx"
     with pd.ExcelWriter(output_excel_path, engine="xlsxwriter") as writer:
@@ -68,3 +79,5 @@ if uploaded_files:
 
     with open(output_excel_path, "rb") as f:
         st.download_button("📥 Baixar Relatório Final", f, file_name=output_excel_path)
+else:
+    st.info("Nenhum dado disponível no momento. Faça upload de planilhas para iniciar.")
