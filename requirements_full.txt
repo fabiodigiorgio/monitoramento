@@ -1,0 +1,12 @@
+streamlit
+pandas
+openpyxl
+xlrd
+numpy
+matplotlib
+seaborn
+scikit-learn
+plotly
+xlsxwriter
+pyxlsb
+requests
